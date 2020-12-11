@@ -24,21 +24,14 @@ public class TemplateInvoiceMapper {
         double highest_single_prize = -1;
         String highest_single_prize_name = "";
 
-        /*
-         * TODO
-         * Task 5.2c)
-         * Implement your procedures for querying REDIS for the highest prize per unit and the corresponding unit's name HERE.
-         */
+        Order highestPriceOrder = getHighestPriceOrder(jedis);
+        highest_single_prize = highestPriceOrder.getPrice();
+        highest_single_prize_name = highestPriceOrder.getName();
 
         System.out.println("Highest Single Prize: " + highest_single_prize_name + " at " + highest_single_prize + "â‚¬.");
     }
 
     public static void saveInvoice(Jedis jedis, Invoice invoice) {
-        /*
-         * TODO
-         * Task 5.2a)
-         * Implement procedures for saving invoices HERE!
-         */
     	//Basic Invoice Information in customerSupplier-HashMap und auf ID von invoice legen
     	Customer currentCustomer = invoice.getCustomer();
     	Supplier currentSupplier = invoice.getSupplier();
@@ -110,7 +103,44 @@ public class TemplateInvoiceMapper {
     	
     	jedis.hmset("supplier:" + currentSupplier.getId() + ":billinginformation", billingInformationMap);
     }
-
+    
+    //Gibt die Order mit dem höchsten .getPrice() von allen Orders in jedis aus
+    public static Order getHighestPriceOrder(Jedis jedis) {
+    	Order returnOrder = null;
+    	int currentInvoiceId = 100;
+    	double highestPrice = Double.MIN_VALUE;
+    	
+    	//Plan: Iteriere über alle Invoices -> Iteriere über alle OrderListen -> Vergleiche Preise
+    	//check, wieviele Orders in einem Invoice sind und dann iteriere darüber
+    	
+    	String numberOrders = jedis.get("invoice:" + currentInvoiceId + ":order");
+    	
+    	//Fliege raus wenn Invoice nicht mehr existiert für currentInvoiceId
+    	if(numberOrders!=null) {
+    		//Iteriere über alle Orders innerhalb von Invoice
+    		
+    		for(int i=1;i <= Integer.valueOf(numberOrders);i++) {
+    			//.get(0) da wir in der HashMap jeweils laut Definition nur 1 Element pro Key zuweisen, und genau auf dieses Element zugreifen möchten
+    			String currentElement = "invoice:" + currentInvoiceId + ":order:" + i;
+    			double currentPrice = Double.valueOf(jedis.hmget(currentElement, "price").get(0));
+    			
+    			if(currentPrice > highestPrice) {
+    				highestPrice = currentPrice;
+    				returnOrder = new Order(Integer.valueOf(jedis.hmget(currentElement, "id").get(0)),
+    						jedis.hmget(currentElement, "name").get(0),
+    						Integer.valueOf(jedis.hmget(currentElement, "amount").get(0)),
+    						Double.valueOf(jedis.hmget(currentElement, "price").get(0)));
+    			}
+    			
+    		}
+    		
+    		
+    		currentInvoiceId++;
+    		numberOrders = jedis.get("invoice:" + currentInvoiceId + ":order");
+    	}
+    	  	
+    	return returnOrder;
+    }
     /*
      * You may add further methods HERE to structure your procedures for invoice saving, querying and possibly retrieval.
      */
