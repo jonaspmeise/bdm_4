@@ -1,14 +1,39 @@
 package org.wwu.dma.nosql.kv;
 
 import org.wwu.dma.nosql.data.*;
+
+import com.mongodb.BasicDBObject;
+import com.mongodb.MongoClient;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Projections;
+
 import redis.clients.jedis.Jedis;
 
+import org.bson.Document;
+import org.bson.codecs.configuration.CodecRegistry;
+import org.bson.codecs.pojo.PojoCodecProvider;
+import org.bson.conversions.Bson;
+
+import java.util.List;
+
+import static com.mongodb.client.model.Filters.*;
+import static com.mongodb.client.model.Updates.*;
+import static java.util.Arrays.asList;
+import static org.bson.codecs.configuration.CodecRegistries.fromProviders;
+import static org.bson.codecs.configuration.CodecRegistries.fromRegistries;
+
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
 public class TemplateInvoiceMapper {
     public static void main(String[] args) {
+        //
+        //JEDIS PART
+        //
         Jedis jedis = new Jedis("localhost", 6379);
         System.out.println("Connected to Redis");
 
@@ -29,8 +54,62 @@ public class TemplateInvoiceMapper {
         highest_single_prize_name = highestPriceOrder.getName();
 
         System.out.println("Highest Single Prize: " + highest_single_prize_name + " at " + highest_single_prize + "â‚¬.");
+        
+        //
+        //MONGO DB PART
+        //
+		
+		MongoClient mongoClient = new MongoClient();
+		MongoDatabase database = mongoClient.getDatabase("mydb");
+		MongoCollection<Document> collection = database.getCollection("invoice");
+		collection.drop();
+
+		for(Invoice invoice : invoices) {
+			TemplateInvoiceMapper.saveInvoice(collection, invoice);
+		}
+		
+		FindIterable<Document> findIterable = collection.find()
+				.sort(new BasicDBObject("price",-1))
+				.limit(1)
+				.projection(Projections.include("orders"));
+		
+		for(Document doc2 : findIterable) { 
+			System.out.println(doc2);
+		}
+		 
+		
+		mongoClient.close();
+		    
     }
 
+    public static void saveInvoice(MongoCollection<Document> collection, Invoice invoice) {
+    	Customer customer = invoice.getCustomer();
+    	Supplier supplier = invoice.getSupplier();
+    	List<Order> orders = invoice.getOrders();
+    	
+    	Document doc = new Document("_id", invoice.getId())
+    			.append("customer", new Document("id", customer.getId())
+    					.append("name", customer.getName())
+    					.append("address", new Document("id", customer.getAddress().getId())
+    							.append("zip", customer.getAddress().getZipCode())
+    							.append("city", customer.getAddress().getCity())
+    							.append("street", customer.getAddress().getStreet())
+    							.append("number", customer.getAddress().getStreetNumber())))
+    			.append("supplier", new Document("id", supplier.getId())
+    					.append("name", supplier.getName())
+    					.append("address", new Document("id", supplier.getAddress().getId())
+    							.append("zip", supplier.getAddress().getZipCode())
+    							.append("city", supplier.getAddress().getCity())
+    							.append("street", supplier.getAddress().getStreet())
+    							.append("number", supplier.getAddress().getStreetNumber()))
+    					.append("billing",new Document("id", supplier.getBillingInformation().getId())
+    							.append("iban",supplier.getBillingInformation().getIban())
+    							.append("bic", supplier.getBillingInformation().getBic())))
+    			.append("orders", getOrdersDoc(orders));
+    	
+    	collection.insertOne(doc);
+    }
+    
     public static void saveInvoice(Jedis jedis, Invoice invoice) {
     	//Basic Invoice Information in customerSupplier-HashMap und auf ID von invoice legen
     	Customer currentCustomer = invoice.getCustomer();
@@ -141,6 +220,28 @@ public class TemplateInvoiceMapper {
     	  	
     	return returnOrder;
     }
+      
+    public static Document getOrdersDoc(List<Order> orders) {
+    	Document returnDocument = null;
+    	
+    	if(orders.size() >= 1) {
+    		//Erstes Order-Dokument initialisieren, damit wir alle anderen Dokumente daranhängen können
+    		returnDocument = new Document("order",getOrderDoc(orders.get(0)));
+    		
+    		for(int i=1;i<orders.size();i++) {
+    			returnDocument.append(Integer.toString(orders.get(i).getId()), getOrderDoc(orders.get(i)));
+    		}
+    	}
+    	
+    	return returnDocument;
+    }
+    
+    public static Document getOrderDoc(Order order) {
+    	return new Document("name",order.getName())
+    			.append("price", order.getPrice())
+    			.append("amount", order.getAmount());
+    }
+    
     /*
      * You may add further methods HERE to structure your procedures for invoice saving, querying and possibly retrieval.
      */

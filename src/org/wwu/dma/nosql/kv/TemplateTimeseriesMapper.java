@@ -1,20 +1,39 @@
 package org.wwu.dma.nosql.kv;
 
+import org.bson.Document;
+import org.wwu.dma.nosql.data.Customer;
+import org.wwu.dma.nosql.data.Invoice;
+import org.wwu.dma.nosql.data.Order;
+import org.wwu.dma.nosql.data.Supplier;
 import org.wwu.dma.nosql.data.TimeSeriesPoint;
 import org.wwu.dma.nosql.data.TimeseriesDataGenerator;
+
+import com.mongodb.MongoClient;
+import com.mongodb.client.FindIterable;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+
 import redis.clients.jedis.Jedis;
 
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Random;
 
 public class TemplateTimeseriesMapper {
     public static void main(String[] args) {
         Jedis jedis = new Jedis("localhost", 6379);
         System.out.println("Connected to Redis");
-
+        
+        //MONGO DB SETUP sodass wir die Daten dort auch abspeichern können
+		MongoClient mongoClient = new MongoClient();
+		MongoDatabase database = mongoClient.getDatabase("mydb");
+		MongoCollection<Document> collection = database.getCollection("timeseries");
+		collection.drop();
+        
+        
         Random rand = new Random();
         rand.setSeed(1234L);
         TimeSeriesPoint[] data;
@@ -23,6 +42,7 @@ public class TemplateTimeseriesMapper {
             seed = rand.nextLong();
             data = TimeseriesDataGenerator.generateTimeSeriesExampleData(100, seed);
             TemplateTimeseriesMapper.saveTimeseries(jedis, i, data);
+            TemplateTimeseriesMapper.saveTimeseries(collection, i, data);
         }
 
         double highest_value = Double.MIN_VALUE;
@@ -38,6 +58,12 @@ public class TemplateTimeseriesMapper {
 
         System.out.println("Highest value (" + highest_value + ") measured on " + highest_value_timestamp +
                 " as part of time series #" + highest_value_tsId);
+        
+        //
+        //MONGO DB PART
+        //
+		
+		mongoClient.close();
     }
 
     public static void saveTimeseries(Jedis jedis, int id, TimeSeriesPoint[] timeSeries) {
@@ -60,6 +86,30 @@ public class TemplateTimeseriesMapper {
     	}
     }
     
+    public static void saveTimeseries(MongoCollection<Document> collection, int id, TimeSeriesPoint[] timeSeries) {
+    	Document doc = new Document("_id", id)
+    			.append("timeseriespoints", getTimeseriesDocuments(timeSeries));
+    	collection.insertOne(doc);
+    }
+    
+    public static Document getTimeseriesDocuments(TimeSeriesPoint[] timeSeries) {
+    	if (timeSeries.length >= 1) {
+    		Document returnDocument = new Document("timeseriespoint", getTimeseriesDocument(timeSeries[0])); 
+    			
+    		for(int i=1;i<timeSeries.length;i++) {
+    			returnDocument.append(Integer.toString(i), getTimeseriesDocument(timeSeries[i]));
+    		}
+    		
+    		return returnDocument;
+    	} else {
+    		return null;
+    	}
+    }
+    
+    public static Document getTimeseriesDocument(TimeSeriesPoint timeSeriesPoint) {
+    	return new Document("timestamp", timeSeriesPoint.getTimestamp())
+    			.append("value", timeSeriesPoint.getValue());
+    }
     
     //return Array[2] with [0]=ID of timeseries, [1]=point within timeseries
     public static int[] highestValue(Jedis jedis) {
